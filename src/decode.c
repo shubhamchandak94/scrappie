@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <math.h>
 
 #include "decode.h"
 #include "scrappie_stdlib.h"
@@ -833,10 +834,86 @@ float sloika_viterbi(const_scrappie_matrix logpost, float stay_pen, float skip_p
     return logscore;
 }
 
+// decode with constraint that no consecutive base is same
 float decode_crf(const_scrappie_matrix trans, int * path){
     RETURN_NULL_IF(NULL == trans, NAN);
     RETURN_NULL_IF(NULL == path, NAN);
+    const size_t nblk = trans->nc;
+    const size_t nstate = roundf(sqrtf((float)trans->nr));
+    assert(nstate * nstate == trans->nr);
+    float * mem = calloc(2 * nstate, sizeof(float));
+    scrappie_imatrix tb = make_scrappie_imatrix(nstate, nblk);
+    if(NULL == mem || NULL == tb){
+        tb = free_scrappie_imatrix(tb);
+        free(mem);
+        return NAN;
+    }
+    
+    size_t prev_non_blank_base = nstate; // initialize with impossible value
+    // this is the last non-blank base on the path ending with blank
 
+    float * curr = mem;
+    float * prev = mem + nstate;
+
+
+    //  Forwards Viterbi pass
+    for(size_t blk=0 ; blk < nblk ; blk++){
+        const size_t offset = blk * trans->stride;
+        const size_t tboffset = blk * tb->stride;
+        {   // Swap
+            float * tmp = curr;
+            curr = prev;
+            prev = tmp;
+        }
+
+        for(size_t st1=0 ; st1 < nstate ; st1++){
+	    // st1 is to-state (in -ACGT)
+            const size_t offsetS = offset + st1 * nstate;
+	    if (st1 == 0)
+		curr[st1] = -INFINITY; // not allowed
+	    else
+                curr[st1] = trans->data.f[offsetS + 0] + prev[0];
+            tb->data.f[tboffset + st1] = 0;
+            for(size_t st2=1 ; st2 < nstate ; st2++){
+		// st2 is from-state (in -ACGT)
+		size_t prev_base = st2;
+		if (st2 == nstate - 1) // blank
+			prev_base = prev_non_blank_base;
+                float score = trans->data.f[offsetS + st2] + prev[st2];
+		if (st1 == prev_base)
+			score = -INFINITY;
+                if(score > curr[st1]){
+                    curr[st1] = score;
+                    tb->data.f[tboffset + st1] = st2;
+
+                }
+            }
+	    if (st1 == nstate - 1 && tb->data.f[tboffset + st1] != nstate - 1) {
+		// transition from non-blank to blank, update prev_non_blank_base
+		prev_non_blank_base = tb->data.f[tboffset + st1];
+	    }
+        }
+    }
+
+    //  Traceback
+    const float score = valmaxf(curr, nstate);
+    path[nblk] = argmaxf(curr, nstate);
+    for(size_t blk=nblk ; blk > 0 ; blk--){
+        const size_t offset = (blk - 1) * tb->stride;
+        path[blk - 1] = tb->data.f[offset + path[blk]];
+    }
+
+    tb = free_scrappie_imatrix(tb);
+    free(mem);
+
+    return score;
+}
+
+/*
+// original decode
+float decode_crf(const_scrappie_matrix trans, int * path){
+    RETURN_NULL_IF(NULL == trans, NAN);
+    RETURN_NULL_IF(NULL == path, NAN);
     const size_t nblk = trans->nc;
     const size_t nstate = roundf(sqrtf((float)trans->nr));
     assert(nstate * nstate == trans->nr);
@@ -891,6 +968,7 @@ float decode_crf(const_scrappie_matrix trans, int * path){
 
     return score;
 }
+*/
 
 char * crfpath_to_basecall(int const * path, size_t npos, int * pos){
     RETURN_NULL_IF(NULL == path, NULL);
