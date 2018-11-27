@@ -834,7 +834,12 @@ float sloika_viterbi(const_scrappie_matrix logpost, float stay_pen, float skip_p
     return logscore;
 }
 
+/*
 // decode with constraint that no consecutive base is same
+// NOTE: the implementation below is greedy and wrong, I am now reading up on how to do this 
+// correctly. It's wrong because we don't consider all states, e.g., for paths ending with a blank,
+// we should store the best path for all the 4 possible bases that came before.
+
 float decode_crf(const_scrappie_matrix trans, int * path){
     RETURN_NULL_IF(NULL == trans, NAN);
     RETURN_NULL_IF(NULL == path, NAN);
@@ -908,8 +913,105 @@ float decode_crf(const_scrappie_matrix trans, int * path){
 
     return score;
 }
-
+*/
 /*
+// decode under assumption that we have sequence of length 5 (repeat_len) homopolymers
+// NOTE: the implementation below is greedy and wrong, I am now reading up on how to do this 
+// correctly
+float decode_crf(const_scrappie_matrix trans, int * path){
+    int repeat_len = 5;
+    int cur_segment_len[5] = {0,0,0,0,0};
+    // cur_segment_len stores the length of the current homopolymer in the best path
+    // ending with each of the 5 states. 0 means previous h.p. has ended so a new one can
+    // can start. non-zero means that the next symbol can be blank or the current homopolymer 
+    // base
+    int next_segment_len[5];
+    size_t hp_base_ending_blank = 5;
+    // the current homopolymer base in the best path ending with blank (for best paths ending with
+    // other bases, the current homopolymer base is that base so no need to store.
+    // initialize with impossible value 5 so poses no constraint initially.
+    RETURN_NULL_IF(NULL == trans, NAN);
+    RETURN_NULL_IF(NULL == path, NAN);
+    const size_t nblk = trans->nc;
+    const size_t nstate = roundf(sqrtf((float)trans->nr));
+    assert(nstate * nstate == trans->nr);
+    float * mem = calloc(2 * nstate, sizeof(float));
+    scrappie_imatrix tb = make_scrappie_imatrix(nstate, nblk);
+    if(NULL == mem || NULL == tb){
+        tb = free_scrappie_imatrix(tb);
+        free(mem);
+        return NAN;
+    }
+
+    float * curr = mem;
+    float * prev = mem + nstate;
+
+
+    //  Forwards Viterbi pass
+    for(size_t blk=0 ; blk < nblk ; blk++){
+        const size_t offset = blk * trans->stride;
+        const size_t tboffset = blk * tb->stride;
+        {   // Swap
+            float * tmp = curr;
+            curr = prev;
+            prev = tmp;
+        }
+
+        for(size_t st1=0 ; st1 < nstate ; st1++){
+	    // st1 is to-state (in -ACGT)
+            const size_t offsetS = offset + st1 * nstate;
+            if (cur_segment_len[0] != 0 && st1 != 0 && st1 != nstate - 1) 
+                curr[st1] = -INFINITY; // not allowed if previous A segment len is non-zero and current symbol is not A or blank
+            else
+                curr[st1] = trans->data.f[offsetS + 0] + prev[0];
+            tb->data.f[tboffset + st1] = 0;
+            for(size_t st2=1 ; st2 < nstate ; st2++){
+		// st2 is from-state (in -ACGT)
+                size_t prev_base = st2;
+                if (st2 == nstate - 1) // blank
+                    prev_base = hp_base_ending_blank;
+                float score = trans->data.f[offsetS + st2] + prev[st2];
+                if (cur_segment_len[st2] != 0 && st1 != prev_base && st1 != nstate - 1)
+                    score = -INFINITY;
+                if(score > curr[st1]){
+                    curr[st1] = score;
+                    tb->data.f[tboffset + st1] = st2;
+                }
+            }
+
+        }
+        for(size_t st1=0 ; st1 < nstate ; st1++){
+            if (st1 != nstate - 1) // not blank, so update cur_segment_len[st1]
+                next_segment_len[st1] = (cur_segment_len[tb->data.f[tboffset + st1]] + 1)%repeat_len;
+            else {
+                // blank so update hp_base_ending_blank if best st2 is non-blank
+                if (tb->data.f[tboffset + st1] != nstate - 1) {
+                    hp_base_ending_blank = tb->data.f[tboffset + st1];
+                    next_segment_len[nstate-1] = cur_segment_len[hp_base_ending_blank];
+                }
+		else
+                    next_segment_len[nstate-1] = cur_segment_len[nstate-1];
+            }    
+        }
+        for(size_t st1=0 ; st1 < nstate ; st1++)
+            cur_segment_len[st1] = next_segment_len[st1];
+    }
+
+    //  Traceback
+    const float score = valmaxf(curr, nstate);
+    path[nblk] = argmaxf(curr, nstate);
+    for(size_t blk=nblk ; blk > 0 ; blk--){
+        const size_t offset = (blk - 1) * tb->stride;
+        path[blk - 1] = tb->data.f[offset + path[blk]];
+    }
+
+    tb = free_scrappie_imatrix(tb);
+    free(mem);
+
+    return score;
+}
+*/
+
 // original decode
 float decode_crf(const_scrappie_matrix trans, int * path){
     RETURN_NULL_IF(NULL == trans, NAN);
@@ -924,7 +1026,6 @@ float decode_crf(const_scrappie_matrix trans, int * path){
         free(mem);
         return NAN;
     }
-
     float * curr = mem;
     float * prev = mem + nstate;
 
@@ -968,7 +1069,7 @@ float decode_crf(const_scrappie_matrix trans, int * path){
 
     return score;
 }
-*/
+
 
 char * crfpath_to_basecall(int const * path, size_t npos, int * pos){
     RETURN_NULL_IF(NULL == path, NULL);

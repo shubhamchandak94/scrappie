@@ -43,7 +43,7 @@ raw_data = np.array([])
 # for dwell time use deepsimulator since the one provided by scrappie is way too good
 # scrappie dwell gives around 3-4% edit distance while ds dwell gives around 15%
 ds_alpha = 0.1 # 0.1 is default parameter in deepsim
-#squiggle_array[:,0] = rep_rvs(squiggle_array.shape[0], ds_alpha)
+squiggle_array[:,0] = rep_rvs(squiggle_array.shape[0], ds_alpha)
 
 for squig in squiggle_array:
 	mean = squig[1]
@@ -95,8 +95,10 @@ context_tags = {}
 with Fast5.New(filename, 'w', tracking_id=tracking_id, context_tags=context_tags, channel_id=channel_id) as h:
     h.set_raw(raw_data_binned, meta=read_id, read_number=1)
 
-basecall = scrappy.basecall_raw(raw_data, model='rnnrf_r94')
-basecall_seq = basecall[0]
+#basecall = scrappy.basecall_raw(raw_data, model='rnnrf_r94')
+#basecall_seq = basecall[0]
+
+basecall_seq = scrappy.basecall_raw_python(raw_data)
 
 # find edit distance
 edit_distance = editdistance.eval(basecall_seq,seq)

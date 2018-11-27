@@ -416,7 +416,6 @@ def basecall_raw(data, model='rgrgr_r94', with_base_probs=False, **kwargs):
 
     raw = RawTable(data)
     raw.trim().scale()
-
     post = calc_post(raw, model, log=True)
     seq, score, pos = decode_post(post, model, **kwargs)
 
@@ -428,6 +427,101 @@ def basecall_raw(data, model='rgrgr_r94', with_base_probs=False, **kwargs):
 
     return seq, score, pos, raw.start, raw.end, base_probs
 
+#def basecall_raw_vocab_token_passing(data, vocab):
+#    """Basecall from raw data in a numpy array with token passing given a vocabulary.
+#
+#    :param data: `ndarray` containing raw signal data.
+#    :param vocab: Python list containing allowed kmers in vocabulary
+#
+#    :returns: basecall
+#    """
+#    model = 'rnnrf_r94'
+#
+#    raw = RawTable(data)
+##    raw.trim().scale()
+#    raw.scale()
+#    post = calc_post(raw, model, log=True)
+#    seq = decode_post_vocab_token_passing(post, vocab)
+#
+#    return seq
+
+def basecall_raw_python(data):
+    """Basecall from raw data in a numpy array with python implementation of Viterbi.
+    also verifies that the basecall matches that of C implementation
+
+    :param data: `ndarray` containing raw signal data.
+
+    :returns: basecall
+    """
+    model = 'rnnrf_r94'
+
+    raw = RawTable(data)
+#    raw.trim().scale()
+    raw.scale()
+    post = calc_post(raw, model, log=True)
+    seq_c,_,_ = decode_post(post, model)
+    seq = decode_post_python(post.data(as_numpy=True))
+    assert seq == seq_c
+
+    return seq
+
+def decode_post_python(post):
+    """Perform Viterbi decoding for CRF model in Python. 
+
+    :param post: `ndarray` containing post data of shape (nblk,25)
+
+    :returns: basecall
+    """
+    nstate = 5
+    nblk = post.shape[0]
+    assert nstate*nstate == post.shape[1]
+
+    # need to reorder each row of post because of some strangeness
+    idx = list(range(1,25))+[0]
+    post_reordered = post[:,idx]
+
+    post_sq = np.reshape(post_reordered,(nblk,nstate,nstate)) # square shape
+    traceback = np.zeros((nblk,nstate), dtype = np.uint8)
+    
+    prev = np.zeros(nstate)
+    curr = np.zeros(nstate)
+
+    # forwards Viterbi pass
+    for blk in range(nblk):
+        prev = np.copy(curr)
+        for st1 in range(nstate):
+            # st1 is to-state (ACGT-)
+            curr[st1] = post_sq[blk][st1][0] + prev[0]
+            traceback[blk][st1] = 0
+            for st2 in range(1,nstate):
+                # st2 is from-state (ACGT-) - A already dealt with above
+                score = post_sq[blk][st1][st2] + prev[st2]
+                if score > curr[st1]:
+                    curr[st1] = score
+                    traceback[blk][st1] = st2
+    
+    # traceback
+    path = np.zeros(nblk+1, dtype = np.uint8)
+    path[-1] = np.argmax(curr)
+    for blk in range(nblk,0,-1):
+        path[blk-1] = traceback[blk-1][path[blk]]
+    path = path[:-1]
+    return crfpath_to_basecall(path)
+
+def crfpath_to_basecall(path):
+    """Convert path to basecall by collapsing blanks
+
+    :param path: `ndarray` containing most probable sequence of states
+
+    :returns: basecall
+    """
+    NBASE = 4
+    base_lookup = ['A','C','G','T']
+    basecall = []
+    for b in path:
+        if b < NBASE:
+            basecall.append(base_lookup[b])
+    return ''.join(basecall)        
 
 def sequence_to_squiggle(sequence, model='squiggle_r94', rescale=False):
     """Simulate a squiggle from a base sequence.
