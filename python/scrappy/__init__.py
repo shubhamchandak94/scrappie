@@ -480,7 +480,7 @@ def basecall_raw_python_sync(data, sync_char='T', period=4):
 #   raw.trim().scale()
     raw.scale()
     post = calc_post(raw, model, log=True)
-    seq = decode_post_python_sync(post.data(as_numpy=True),)
+    seq = decode_post_python_sync(post.data(as_numpy=True),sync_char,period)
 
     return seq
 
