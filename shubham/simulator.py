@@ -43,13 +43,15 @@ raw_data = np.array([])
 # for dwell time use deepsimulator since the one provided by scrappie is way too good
 # scrappie dwell gives around 3-4% edit distance while ds dwell gives around 15%
 ds_alpha = 0.1 # 0.1 is default parameter in deepsim
-squiggle_array[:,0] = rep_rvs(squiggle_array.shape[0], ds_alpha)
+#squiggle_array[:,0] = rep_rvs(squiggle_array.shape[0], ds_alpha)
 
 for squig in squiggle_array:
 	mean = squig[1]
 	stdv = squig[2]
 	dwell = squig[0]
 	raw_data = np.append(raw_data, np.random.laplace(mean, stdv/np.sqrt(2), int(round(dwell))))
+
+print('Length of raw signal: ', len(raw_data))
 
 file_raw = 'raw_data.txt'
 f = open(file_raw,'w')
@@ -98,7 +100,9 @@ with Fast5.New(filename, 'w', tracking_id=tracking_id, context_tags=context_tags
 #basecall = scrappy.basecall_raw(raw_data, model='rnnrf_r94')
 #basecall_seq = basecall[0]
 
-basecall_seq = scrappy.basecall_raw_python(raw_data)
+#basecall_seq = scrappy.basecall_raw_python(raw_data)
+#basecall_seq = scrappy.basecall_raw_python_no_homopolymer(raw_data)
+basecall_seq = scrappy.basecall_raw_python_sync(raw_data)
 
 # find edit distance
 edit_distance = editdistance.eval(basecall_seq,seq)

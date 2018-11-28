@@ -427,24 +427,6 @@ def basecall_raw(data, model='rgrgr_r94', with_base_probs=False, **kwargs):
 
     return seq, score, pos, raw.start, raw.end, base_probs
 
-#def basecall_raw_vocab_token_passing(data, vocab):
-#    """Basecall from raw data in a numpy array with token passing given a vocabulary.
-#
-#    :param data: `ndarray` containing raw signal data.
-#    :param vocab: Python list containing allowed kmers in vocabulary
-#
-#    :returns: basecall
-#    """
-#    model = 'rnnrf_r94'
-#
-#    raw = RawTable(data)
-##    raw.trim().scale()
-#    raw.scale()
-#    post = calc_post(raw, model, log=True)
-#    seq = decode_post_vocab_token_passing(post, vocab)
-#
-#    return seq
-
 def basecall_raw_python(data):
     """Basecall from raw data in a numpy array with python implementation of Viterbi.
     also verifies that the basecall matches that of C implementation
@@ -462,6 +444,43 @@ def basecall_raw_python(data):
     seq_c,_,_ = decode_post(post, model)
     seq = decode_post_python(post.data(as_numpy=True))
     assert seq == seq_c
+
+    return seq
+
+def basecall_raw_python_no_homopolymer(data):
+    """Basecall from raw data in a numpy array with python implementation of Viterbi.
+    Assumes no repeating bases.
+
+    :param data: `ndarray` containing raw signal data.
+
+    :returns: basecall
+    """
+    model = 'rnnrf_r94'
+
+    raw = RawTable(data)
+#    raw.trim().scale()
+    raw.scale()
+    post = calc_post(raw, model, log=True)
+    seq = decode_post_python_no_homopolymer(post.data(as_numpy=True))
+
+    return seq
+
+def basecall_raw_python_sync(data, sync_char='T', period=4):
+    """Basecall from raw data in a numpy array with python implementation of Viterbi.
+    Every period base is sync_char and other bases are not sync_char. e.g., sync_char = 'T' 
+    and period of 4 looks like AGCTGACTGGCTACCT...
+
+    :param data: `ndarray` containing raw signal data.
+
+    :returns: basecall
+    """
+    model = 'rnnrf_r94'
+
+    raw = RawTable(data)
+#   raw.trim().scale()
+    raw.scale()
+    post = calc_post(raw, model, log=True)
+    seq = decode_post_python_sync(post.data(as_numpy=True),)
 
     return seq
 
@@ -506,6 +525,150 @@ def decode_post_python(post):
     for blk in range(nblk,0,-1):
         path[blk-1] = traceback[blk-1][path[blk]]
     path = path[:-1]
+    return crfpath_to_basecall(path)
+
+def decode_post_python_no_homopolymer(post):
+    """Perform Viterbi decoding for CRF model in Python. Assumes no repeating bases.
+
+    :param post: `ndarray` containing post data of shape (nblk,25)
+
+    :returns: basecall
+    """
+    nstate = 5 # original states in post
+    nstate_code = 9 # states for decoding - A,C,G,T and five copies of blank depending on which was the 
+    # previous non-blank base - initialization or ACGT
+    nblk = post.shape[0]
+    assert nstate*nstate == post.shape[1]
+
+    # need to reorder each row of post because of some strangeness
+    idx = list(range(1,25))+[0]
+    post_reordered = post[:,idx]
+
+    post_sq = np.reshape(post_reordered,(nblk,nstate,nstate)) # square shape
+    traceback = np.zeros((nblk,nstate_code), dtype = np.uint8)
+ 
+    prev = np.zeros(nstate_code)
+    curr = np.zeros(nstate_code)
+    curr[5:] = -np.inf # these are invalid initial states since blank starts with initialization
+
+    # forwards Viterbi pass
+    for blk in range(nblk):
+        prev = np.copy(curr)
+        for st1 in range(nstate_code):
+            if st1 == 4: # blank-init - only incoming edge from same 
+                curr[st1] = post_sq[blk][st1][4] + prev[4]
+                traceback[blk][st1] = 4
+            else:
+                st1_trans = st1 # for post_sq
+                if st1 > 4:
+                    st1_trans = 4 # for CRF model, all blanks are equivalent
+                # st1 is to-state
+                if st1 == 0 or st1 > 5:
+                    curr[st1] = -np.inf
+                else:
+                    curr[st1] = post_sq[blk][st1_trans][0] + prev[0]
+                traceback[blk][st1] = 0
+                for st2 in range(1,nstate_code):
+                    # st2 is from-state - A already dealt with above
+                    st2_trans = st2 # for post_sq
+                    if st2 > 4:
+                        st2_trans = 4
+                    score = post_sq[blk][st1_trans][st2_trans] + prev[st2]
+                    if st2 < 4:
+                        if st1 == st2 or (st1 > 4 and st1 != st2 + 5):
+                            score = -np.inf
+                    elif st2 == 4:
+                        if st1 > 4:
+                            score = -np.inf
+                    else:
+                        if st1 == st2 - 5 or (st1 > 4 and st1 != st2):
+                            score = -np.inf
+                    if score > curr[st1]:
+                        curr[st1] = score
+                        traceback[blk][st1] = st2
+    
+    # traceback
+    path = np.zeros(nblk+1, dtype = np.uint8)
+    path[-1] = np.argmax(curr)
+    for blk in range(nblk,0,-1):
+        path[blk-1] = traceback[blk-1][path[blk]]
+    path = path[:-1]
+    for blk in range(nblk):
+        if path[blk] > 4:
+            path[blk] = 4
+    return crfpath_to_basecall(path)
+
+def decode_post_python_sync(post,sync_char='T',period=4):
+    """Perform Viterbi decoding for CRF model in Python. Assumptions as specified in basecall_raw_python_sync.
+
+    :param post: `ndarray` containing post data of shape (nblk,25)
+
+    :returns: basecall
+    """
+    assert period > 1
+    nstate = 5 # original states in post
+    nstate_code = nstate*period # states for decoding - (b,i) where b = 0,1,2,3,4 (ACGT-) and i = 0,1,2,3
+
+    char_to_int = {'A':0,'C':1,'G':2,'T':3}
+    sync_int = char_to_int[sync_char]
+
+    tuple_to_state = lambda b, i: nstate*i + b
+    state_to_base = lambda s: s%nstate
+    valid_state = lambda b, i: (b == nstate - 1) or ((b == sync_int) == (i == 0))
+    nblk = post.shape[0]
+    assert nstate*nstate == post.shape[1]
+
+    # need to reorder each row of post because of some strangeness
+    idx = list(range(1,25))+[0]
+    post_reordered = post[:,idx]
+
+    post_sq = np.reshape(post_reordered,(nblk,nstate,nstate)) # square shape
+    traceback = np.zeros((nblk,nstate_code), dtype = np.uint)
+ 
+    prev = np.zeros(nstate_code)
+    curr = np.zeros(nstate_code)
+    curr[:] = -np.inf # set everything to inf and later set valid initial states to 0
+    curr[tuple_to_state(nstate-1,0)] = 0 # only valid starting state is blank (TODO see if this is okay)
+
+    # forwards Viterbi pass
+    for blk in range(nblk):
+        prev = np.copy(curr)
+        for b1 in range(nstate):
+            for i1 in range(period):
+                if not valid_state(b1,i1):
+                    continue 
+                st1 = tuple_to_state(b1,i1) # to-state
+                curr[st1] = -np.inf
+                for b2 in range(nstate):
+                    for i2 in range(period):
+                        if not valid_state(b2,i2):
+                            continue
+                        if (b1 == nstate-1) and (i1 != i2):
+                            continue # b1 blank so i should be same
+                        if (b1 != nstate-1) and (i1 != (i2+1)%period):
+                            continue # b1 non-blank so i should increase by 1
+                        st2 = tuple_to_state(b2,i2) # from-state
+                        score = post_sq[blk][b1][b2] + prev[st2]
+                        if score > curr[st1]:
+                            curr[st1] = score
+                            traceback[blk][st1] = st2
+    
+    # traceback
+    path = np.zeros(nblk+1, dtype = np.uint)
+    best_score = -np.inf
+    for b in range(nstate):
+        for i in range(period):
+            if not valid_state(b,i):
+                continue
+            st = tuple_to_state(b,i)
+            if curr[st] > score:
+                path[-1] = st
+                score = curr[st]
+    for blk in range(nblk,0,-1):
+        path[blk-1] = traceback[blk-1][path[blk]]
+    # no longer removing last entry, shouldn't make much difference
+    for blk in range(nblk):
+            path[blk] = state_to_base(path[blk])
     return crfpath_to_basecall(path)
 
 def crfpath_to_basecall(path):
