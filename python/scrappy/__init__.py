@@ -484,6 +484,25 @@ def basecall_raw_python_sync(data, sync_char='T', period=4):
 
     return seq
 
+def basecall_raw_python_vocab(data, vocab):
+    """Basecall from raw data in a numpy array with python implementation of Viterbi.
+    Only words (kmers) from vocab are allowed, all words must have same length.
+
+    :param data: `ndarray` containing raw signal data.
+    :param vocab: list containing valid words
+
+    :returns: basecall
+    """
+    model = 'rnnrf_r94'
+
+    raw = RawTable(data)
+#   raw.trim().scale()
+    raw.scale()
+    post = calc_post(raw, model, log=True)
+    seq = decode_post_python_vocab(post.data(as_numpy=True),vocab)
+
+    return seq
+
 def decode_post_python(post):
     """Perform Viterbi decoding for CRF model in Python. 
 
@@ -661,13 +680,138 @@ def decode_post_python_sync(post,sync_char='T',period=4):
             if not valid_state(b,i):
                 continue
             st = tuple_to_state(b,i)
-            if curr[st] > score:
+            if curr[st] > best_score:
                 path[-1] = st
-                score = curr[st]
+                best_score = curr[st]
     for blk in range(nblk,0,-1):
         path[blk-1] = traceback[blk-1][path[blk]]
     # no longer removing last entry, shouldn't make much difference
+    for blk in range(nblk+1):
+            path[blk] = state_to_base(path[blk])
+    return crfpath_to_basecall(path)
+
+def decode_post_python_vocab(post,vocab):
+    """Perform Viterbi decoding for CRF model in Python. Assumptions as specified in basecall_raw_python_vocab.
+
+    :param post: `ndarray` containing post data of shape (nblk,25)
+
+    :returns: basecall
+    """
+    nwords = len(vocab)
+    assert nwords > 0
+    wlen = len(vocab[0])
+    assert wlen > 0
+    for i in range(nwords):
+        assert len(vocab[i]) == wlen
+    
+    nstate = 5 # original states in post
+    nstate_code = 1 + nwords*wlen*2 # states for decoding - init_blank or (i,l,bit) where i in range(nwords), l in range(wlen), bit in range(2)
+
+    char_to_int = {'A':0,'C':1,'G':2,'T':3}
+    vocab_np = np.zeros((nwords,wlen),dtype=np.uint)
+    for i in range(nwords):
+        for l in range(wlen):
+            vocab_np[i][l] = char_to_int[vocab[i][l]]
+    tuple_to_state = lambda i,l,bit: 2*wlen*i + 2*l + bit
+
+    def state_to_base(s):
+        if s == nstate_code - 1: # init_blank
+            return nstate - 1
+        bit = s%2
+        if bit == 1:
+            return nstate - 1 # blank
+        else:
+            l = int((s%(2*wlen))//2)
+            i = int((s-2*l)//(2*wlen))
+            return vocab_np[i][l]
+    nblk = post.shape[0]
+    assert nstate*nstate == post.shape[1]
+
+    # need to reorder each row of post because of some strangeness
+    idx = list(range(1,25))+[0]
+    post_reordered = post[:,idx]
+
+    post_sq = np.reshape(post_reordered,(nblk,nstate,nstate)) # square shape
+    traceback = np.zeros((nblk,nstate_code), dtype = np.uint)
+ 
+    prev = np.zeros(nstate_code)
+    curr = np.zeros(nstate_code)
+    curr[:] = -np.inf # set everything to inf and later set valid initial states to 0
+    curr[nstate_code-1] = 0 # only valid starting state is init_blank (TODO see if this is okay)
+
+    # forwards Viterbi pass
     for blk in range(nblk):
+        prev = np.copy(curr)
+        # first do init_blank (only previous state is init_blank)
+        curr[nstate_code-1] = post_sq[blk][nstate-1][nstate-1] + prev[nstate_code-1]
+        traceback[blk][nstate_code-1] = nstate_code-1
+        for i1 in range(nwords):
+            for l1 in range(wlen):
+                for bit1 in range(2):
+                    st1 = tuple_to_state(i1,l1,bit1)
+                    if l1 == 0 and bit1 == 0:
+                        # first letter of new word
+                        # possible previous states are init_blank and last letters of other words
+                        # init_blank
+                        curr[st1] = post_sq[blk][vocab_np[i1,l1]][nstate-1] + prev[nstate_code-1]
+                        traceback[blk][st1] = nstate_code - 1
+                        # now last letters of the words
+                        l2 = wlen - 1
+                        for i2 in range(nwords):
+                            for bit2 in range(2):
+                                st2 = tuple_to_state(i2,l2,bit2)
+                                if bit2 == 0:
+                                    score = post_sq[blk][vocab_np[i1,l1]][vocab_np[i2,l2]] + prev[st2]
+                                else:
+                                    score = post_sq[blk][vocab_np[i1,l1]][nstate-1] + prev[st2]
+                                if score > curr[st1]:
+                                    curr[st1] = score
+                                    traceback[blk][st1] = st2
+                    elif bit1 == 0:
+                        # non-blank and not at start of word
+                        # previous state can be (i1,l1-1,0) or (i1,l1-1,1)
+                        i2 = i1
+                        l2 = l1 - 1
+                        curr[st1] = -np.inf
+                        for bit2 in range(2):
+                            st2 = tuple_to_state(i2,l2,bit2)
+                            if bit2 == 0:
+                                score = post_sq[blk][vocab_np[i1,l1]][vocab_np[i2,l2]] + prev[st2]
+                            else:
+                                score = post_sq[blk][vocab_np[i1,l1]][nstate-1] + prev[st2]
+                            if score > curr[st1]:
+                                curr[st1] = score 
+                                traceback[blk][st1] = st2
+                    else:
+                        # blank (not init_blank)
+                        # previous state can be (i1,l1,0) or (i1,l1,1)
+                        i2 = i1
+                        l2 = l1
+                        curr[st1] = -np.inf
+                        for bit2 in range(2):
+                            st2 = tuple_to_state(i2,l2,bit2)
+                            if bit2 == 0:
+                                score = post_sq[blk][nstate-1][vocab_np[i2,l2]] + prev[st2]
+                            else:
+                                score = post_sq[blk][nstate-1][nstate-1] + prev[st2]
+                            if score > curr[st1]:
+                                curr[st1] = score
+                                traceback[blk][st1] = st2
+
+    # traceback
+    path = np.zeros(nblk+1, dtype = np.uint)
+    best_score = -np.inf
+    for i in range(nwords):
+        l = wlen - 1 # enforce full word at end
+        for bit in range(2): 
+            st = tuple_to_state(i,l,bit)
+            if curr[st] > best_score:
+                path[-1] = st
+                best_score = curr[st]
+    for blk in range(nblk,0,-1):
+        path[blk-1] = traceback[blk-1][path[blk]]
+    # no longer removing last entry, shouldn't make much difference
+    for blk in range(nblk+1):
             path[blk] = state_to_base(path[blk])
     return crfpath_to_basecall(path)
 

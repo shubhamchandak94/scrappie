@@ -102,7 +102,12 @@ with Fast5.New(filename, 'w', tracking_id=tracking_id, context_tags=context_tags
 
 #basecall_seq = scrappy.basecall_raw_python(raw_data)
 #basecall_seq = scrappy.basecall_raw_python_no_homopolymer(raw_data)
-basecall_seq = scrappy.basecall_raw_python_sync(raw_data)
+#basecall_seq = scrappy.basecall_raw_python_sync(raw_data,period=5)
+basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AAAAA','CCCCC','GGGGG','TTTTT'])
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGCT','ATCG'])
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGCT','ATCG','TGAC','CATG','ACGT','ATGC'])
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGGTTC','CAGACT','ATGACC','TGACGA','CTGCAT','TGTACG','ATTCGC','GATCTA'])
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['CGTAACCTGT','GGTCGCCGCC'])
 
 # find edit distance
 edit_distance = editdistance.eval(basecall_seq,seq)
@@ -123,4 +128,3 @@ a = mp.Aligner(seq = seq, preset='map-ont')
 for hit in a.map(basecall_seq):
 	f.write("{}\t{}\t{}\t{}\tNM:{}\n".format(hit.ctg, hit.r_st, hit.r_en, hit.cigar_str, hit.NM))
 f.close()
-
