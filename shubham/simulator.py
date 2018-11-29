@@ -43,7 +43,7 @@ raw_data = np.array([])
 # for dwell time use deepsimulator since the one provided by scrappie is way too good
 # scrappie dwell gives around 3-4% edit distance while ds dwell gives around 15%
 ds_alpha = 0.1 # 0.1 is default parameter in deepsim
-#squiggle_array[:,0] = rep_rvs(squiggle_array.shape[0], ds_alpha)
+squiggle_array[:,0] = rep_rvs(squiggle_array.shape[0], ds_alpha)
 
 for squig in squiggle_array:
 	mean = squig[1]
@@ -103,11 +103,38 @@ with Fast5.New(filename, 'w', tracking_id=tracking_id, context_tags=context_tags
 #basecall_seq = scrappy.basecall_raw_python(raw_data)
 #basecall_seq = scrappy.basecall_raw_python_no_homopolymer(raw_data)
 #basecall_seq = scrappy.basecall_raw_python_sync(raw_data,period=5)
-basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AAAAA','CCCCC','GGGGG','TTTTT'])
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AAAAA','CCCCC','GGGGG','TTTTT'])
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGCT','ATCG'])
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGCT','ATCG','TGAC','CATG','ACGT','ATGC'])
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGGTTC','CAGACT','ATGACC','TGACGA','CTGCAT','TGTACG','ATTCGC','GATCTA'])
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['CGTAACCTGT','GGTCGCCGCC'])
+vocab_random_150 = [
+'GGCCTACCGA',
+'GGACCGCTTA',
+'GTAGGACTGG',
+'TGGCTGGGTT',
+'AAGCCTTAAT',
+'CAAGCGAAAA',
+'TCCCCGGGAT',
+'CTCCGAATAG',
+'CTGCATTCAT',
+'AACGATTTTC',
+'ACGAAAGCAA',
+'TGTTCTGGAC',
+'ATAGGCCTAT',
+'CATGAATTAG',
+'ATGCTTGGAC',
+]
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,vocab_random_150)
+
+vocab_random_150_30 = [
+'GGCCTACCGAGGACCGCTTAGTAGGACTGG',
+'TGGCTGGGTTAAGCCTTAATCAAGCGAAAA',
+'TCCCCGGGATCTCCGAATAGCTGCATTCAT',
+'AACGATTTTCACGAAAGCAATGTTCTGGAC',
+'ATAGGCCTATCATGAATTAGATGCTTGGAC',
+]
+basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,vocab_random_150_30)
 
 # find edit distance
 edit_distance = editdistance.eval(basecall_seq,seq)
