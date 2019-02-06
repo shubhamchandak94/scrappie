@@ -7,6 +7,8 @@ import functools
 import h5py
 import numpy as np
 import os
+import struct
+import subprocess
 
 from libscrappy import ffi, lib
 
@@ -445,6 +447,44 @@ def basecall_raw_python(data):
     seq = decode_post_python(post.data(as_numpy=True))
     assert seq == seq_c
 
+    return seq
+
+def basecall_raw_viterbi_conv(data, PATH_TO_CPP_EXEC,msg_len):
+    """Basecall from raw data in a numpy array with convolutional code decoding using Viterbi.
+
+    :param data: `ndarray` containing raw signal data.
+
+    :returns: basecall (in bits)
+    """
+    model = 'rnnrf_r94'
+
+    raw = RawTable(data)
+#    raw.trim().scale()
+    raw.scale()
+    post = calc_post(raw, model, log=True)
+    # need to reorder each row of post because of some strangeness
+    post_data = post.data(as_numpy=True)
+    idx = list(range(1,25))+[0]
+    post_reordered = post_data[:,idx]
+    # write to tmp file
+    rnd = str(np.random.randint(10000000))
+    f = open('tmp.'+rnd,'wb')
+    for r in post_reordered:
+        for v in r:
+            f.write(struct.pack('f',v))
+    f.close()
+    subprocess.run([PATH_TO_CPP_EXEC,'decode','tmp.'+rnd,'tmp.dec.'+rnd,str(msg_len)])
+    with open('tmp.dec.'+rnd) as f:
+        seq = f.read()
+    os.remove('tmp.'+rnd)    
+    os.remove('tmp.dec.'+rnd)    
+    # for testing the standard basecalling operation  
+    # print(seq)
+    # seq_2 = decode_post_python(post.data(as_numpy=True))
+    # print(seq_2)
+    # os.remove('tmp.'+rnd)
+    # os.remove('tmp.dec.'+rnd)
+    # assert seq == seq_2
     return seq
 
 def basecall_raw_python_no_homopolymer(data):

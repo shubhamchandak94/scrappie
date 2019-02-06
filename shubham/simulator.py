@@ -108,6 +108,8 @@ with Fast5.New(filename, 'w', tracking_id=tracking_id, context_tags=context_tags
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGCT','ATCG','TGAC','CATG','ACGT','ATGC'])
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['AGGTTC','CAGACT','ATGACC','TGACGA','CTGCAT','TGTACG','ATTCGC','GATCTA'])
 #basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['CGTAACCTGT','GGTCGCCGCC'])
+basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,['CAGTTC','TATCGA'])
+#basecall_seq = scrappy.basecall_raw_viterbi_conv(raw_data)
 vocab_random_150 = [
 'GGCCTACCGA',
 'GGACCGCTTA',
@@ -134,7 +136,7 @@ vocab_random_150_30 = [
 'AACGATTTTCACGAAAGCAATGTTCTGGAC',
 'ATAGGCCTATCATGAATTAGATGCTTGGAC',
 ]
-basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,vocab_random_150_30)
+#basecall_seq = scrappy.basecall_raw_python_vocab(raw_data,vocab_random_150_30)
 
 # find edit distance
 edit_distance = editdistance.eval(basecall_seq,seq)
