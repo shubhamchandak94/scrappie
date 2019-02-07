@@ -6,6 +6,11 @@ import scrappy
 import editdistance
 import scipy.stats as st
 import mappy as mp
+import util
+
+SYN_SUB_PROB = 0.005
+SYN_DEL_PROB = 0.005
+SYN_INS_PROB = 0.001
 
 # from deepsimulator (probably more realistic dwell times)
 def rep_rvs(size,a):
@@ -37,7 +42,9 @@ f.close()
 len_seq = len(seq)
 print('Length of seq: ', len_seq)
 
-squiggle_array = scrappy.sequence_to_squiggle(seq,rescale=True).data(as_numpy=True)
+syn_seq = util.simulate_indelsubs(seq, sub_prob = SYN_SUB_PROB, del_prob = SYN_DEL_PROB, ins_prob = SYN_INS_PROB)
+
+squiggle_array = scrappy.sequence_to_squiggle(syn_seq,rescale=True).data(as_numpy=True)
 raw_data = np.array([])
 
 # for dwell time use deepsimulator since the one provided by scrappie is way too good

@@ -11,6 +11,12 @@ NUM_TRIALS = 100
 SYN_SUB_PROB = 0.0
 SYN_DEL_PROB = 0.0
 SYN_INS_PROB = 0.0
+msg_len = 142 # after attaching sync markers
+# Note: markers not attached for the padding.
+sync_marker = '10'
+sync_marker_period = 9 # first marker at 0, second at sync_marker_period
+msg_len_before_sync_markers = msg_len - (msg_len//sync_marker_period)*len(sync_marker) - min([msg_len%sync_marker_period,len(sync_marker)]) # subtract marker lengths from complete periods and last incomplete period
+print('msg_len_before_sync_markers',msg_len_before_sync_markers)
 
 # from deepsimulator (probably more realistic dwell times)
 def rep_rvs(size,a):
@@ -31,14 +37,24 @@ def rep_rvs(size,a):
     np.random.shuffle(samples)
     return samples
 
-msg_len = 144
 hamming_list = []
 edit_list = []
 correct_list = []
 
 for _ in range(NUM_TRIALS):
-    msg = ''.join(np.random.choice(['0','1'], msg_len))
+    msg_before_markers = np.random.choice(['0','1'], msg_len_before_sync_markers)
+    msg_after_markers = []
+    pos_in_msg_vec = 0
+    for i in range(msg_len):
+        if i%sync_marker_period < len(sync_marker):
+            msg_after_markers.append(sync_marker[i%sync_marker_period])
+        else:
+            msg_after_markers.append(msg_before_markers[pos_in_msg_vec])
+            pos_in_msg_vec += 1
+    assert pos_in_msg_vec == msg_len_before_sync_markers
+    msg = ''.join(msg_after_markers)
     print(msg)
+    assert len(msg) == msg_len
     rnd = str(np.random.randint(10000000))
     with open('tmp.'+rnd,'w') as f:
         f.write(msg)
@@ -85,4 +101,4 @@ for _ in range(NUM_TRIALS):
 print('Summary statistics:')
 print('Number total:', NUM_TRIALS)
 print('Number correct:', sum(correct_list))
-print('Average bit error rate:', sum(hamming_list)/(msg_len*NUM_TRIALS))
+print('Average bit error rate:', sum(hamming_list)/(msg_len_before_sync_markers*NUM_TRIALS))
