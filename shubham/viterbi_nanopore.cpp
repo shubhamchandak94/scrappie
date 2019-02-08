@@ -37,13 +37,13 @@ const uint32_t initial_state_conv = //binary
 const uint32_t sync_marker_length = 
 // 0;
 // 1
-2;
-// 3;
+// 2;
+3;
 const char sync_marker[sync_marker_length] = 
 // {};
 // {1};
-{1,0};
-// {1,1,0};
+// {1,0};
+{1,1,0};
 const uint32_t sync_marker_period = 
 9;
 

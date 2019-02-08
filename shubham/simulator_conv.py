@@ -11,9 +11,9 @@ NUM_TRIALS = 100
 SYN_SUB_PROB = 0.0
 SYN_DEL_PROB = 0.0
 SYN_INS_PROB = 0.0
-msg_len = 142 # after attaching sync markers
+msg_len = 139 # after attaching sync markers
 # Note: markers not attached for the padding.
-sync_marker = '10'
+sync_marker = '110'
 sync_marker_period = 9 # first marker at 0, second at sync_marker_period
 msg_len_before_sync_markers = msg_len - (msg_len//sync_marker_period)*len(sync_marker) - min([msg_len%sync_marker_period,len(sync_marker)]) # subtract marker lengths from complete periods and last incomplete period
 print('msg_len_before_sync_markers',msg_len_before_sync_markers)
